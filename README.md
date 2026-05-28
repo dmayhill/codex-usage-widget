@@ -45,11 +45,19 @@ codex-cli-usage json
 
 ## Run
 
+Quiet launcher, recommended for normal use:
+
+```powershell
+.\start-codex-usage-widget.vbs
+```
+
+Visible launcher, useful for debugging startup errors:
+
 ```powershell
 .\start-codex-usage-widget.cmd
 ```
 
-The `.cmd` launcher calls the PowerShell launcher with a temporary execution-policy bypass. The `.ps1` launcher prefers `pythonw.exe`, so the widget can run without leaving a console window open.
+The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `.cmd` launcher intentionally leaves a visible console available when troubleshooting. The `.ps1` launcher prefers `pythonw.exe`, so the widget itself can run without leaving a console window open.
 
 ## Behavior
 

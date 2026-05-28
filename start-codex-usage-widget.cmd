@@ -4,6 +4,7 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "PS1=%SCRIPT_DIR%start-codex-usage-widget.ps1"
 
+set "CODEX_USAGE_WIDGET_DEBUG=1"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS1%"
 
 set "EXIT_CODE=%ERRORLEVEL%"

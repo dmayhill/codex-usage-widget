@@ -3,9 +3,14 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Widget = Join-Path $ScriptDir "codex_usage_widget.py"
 $Tried = New-Object System.Collections.Generic.List[string]
+$DebugLauncher = $env:CODEX_USAGE_WIDGET_DEBUG -eq "1"
 
 function Wait-On-Error {
     param([string]$Message)
+
+    if (-not $DebugLauncher) {
+        exit 1
+    }
 
     Write-Host ""
     Write-Host $Message -ForegroundColor Red
