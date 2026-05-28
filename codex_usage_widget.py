@@ -29,6 +29,7 @@ MUTED = "#a8a8ad"
 ACCENT = "#d9d9df"
 ERROR = "#ffb4a8"
 STATE_PATH = Path(__file__).with_name("codex_usage_widget_state.json")
+CREATE_NO_WINDOW = 0x08000000
 
 
 user32 = ctypes.windll.user32 if sys.platform == "win32" else None
@@ -286,12 +287,22 @@ def normalize_usage(data):
 def load_usage():
     command = shutil.which("codex-cli-usage")
     if command:
+        startupinfo = None
+        creationflags = 0
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
+            creationflags = CREATE_NO_WINDOW
+
         result = subprocess.run(
             [command, "json"],
             capture_output=True,
             text=True,
             timeout=30,
             check=True,
+            startupinfo=startupinfo,
+            creationflags=creationflags,
         )
         return normalize_usage(json.loads(result.stdout))
 
