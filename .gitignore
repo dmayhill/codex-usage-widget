@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+codex_usage_widget_state.json
+build/
+dist/
+*.spec
+.venv/

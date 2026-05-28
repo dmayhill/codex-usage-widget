@@ -1,0 +1,48 @@
+$ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Widget = Join-Path $ScriptDir "codex_usage_widget.py"
+$Tried = New-Object System.Collections.Generic.List[string]
+
+function Wait-On-Error {
+    param([string]$Message)
+
+    Write-Host ""
+    Write-Host $Message -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Python candidates tried:"
+    foreach ($Item in $Tried) {
+        Write-Host "  - $Item"
+    }
+    Write-Host ""
+    Read-Host "Press Enter to close"
+}
+
+$PythonCandidates = @(
+    (Join-Path $ScriptDir ".venv\Scripts\pythonw.exe"),
+    (Join-Path $ScriptDir ".venv\Scripts\python.exe"),
+    "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe",
+    "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe",
+    "pythonw",
+    "python",
+    "py"
+)
+
+foreach ($Candidate in $PythonCandidates) {
+    try {
+        $Tried.Add($Candidate)
+        $Command = Get-Command $Candidate -ErrorAction Stop
+        & $Command.Source $Widget
+        $ExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        if ($ExitCode -ne 0) {
+            Wait-On-Error "The widget exited with code $ExitCode."
+        }
+        exit $ExitCode
+    } catch {
+        $Tried.Add("$Candidate ($($_.Exception.Message))")
+        continue
+    }
+}
+
+Wait-On-Error "Could not find Python. Install Python 3, or run this with a project .venv."
+exit 1
