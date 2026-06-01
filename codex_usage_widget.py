@@ -19,8 +19,12 @@ HIDE_ON_HOVER = False
 RIGHT_CLICK_HIDE_SECONDS = 20
 CODEX_PROCESS_KEYWORDS = ("codex",)
 CODEX_WINDOW_KEYWORDS = ()
-WIDTH = 420
-HEIGHT = 190
+BASE_WIDTH = 420
+BASE_HEIGHT = 190
+BASE_SCREEN_WIDTH = 1920
+MAX_SIDEBAR_WIDTH = 292
+MIN_SCALE = 0.68
+MAX_SCALE = 1.0
 BG = "#202124"
 PANEL = "#2c2a2d"
 BORDER = "#44474d"
@@ -286,6 +290,11 @@ def normalize_usage(data):
 
 def load_usage():
     command = shutil.which("codex-cli-usage")
+    if not command and sys.platform == "win32":
+        uv_tool_command = Path.home() / ".local" / "bin" / "codex-cli-usage.exe"
+        if uv_tool_command.exists():
+            command = str(uv_tool_command)
+
     if command:
         startupinfo = None
         creationflags = 0
@@ -316,6 +325,9 @@ def load_usage():
 class UsageWidget:
     def __init__(self):
         self.root = Tk()
+        self.scale = self.display_scale()
+        self.width = self.s(BASE_WIDTH)
+        self.height = self.s(BASE_HEIGHT)
         self.root.title("Codex Usage")
         self.root.resizable(False, False)
         self.root.attributes("-topmost", True)
@@ -329,23 +341,23 @@ class UsageWidget:
             self.root.configure(bg=BG)
 
         self.drag_handles = []
-        self.canvas = Canvas(self.root, width=WIDTH, height=HEIGHT, bg=self.transparent, highlightthickness=0)
+        self.canvas = Canvas(self.root, width=self.width, height=self.height, bg=self.transparent, highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
-        rounded_rect(self.canvas, 1, 1, WIDTH - 2, HEIGHT - 2, 18, fill=PANEL, outline=BORDER, width=1)
+        rounded_rect(self.canvas, 1, 1, self.width - 2, self.height - 2, self.s(18), fill=PANEL, outline=BORDER, width=1)
 
-        self.title = self.make_label("Codex Usage", 22, 20, font=("Segoe UI", 14, "bold"))
-        self.plan = self.make_label("", 170, 22, font=("Segoe UI", 9), fg=MUTED)
-        self.status = self.make_label("Loading...", 22, 140, font=("Segoe UI", 8), fg=MUTED)
-        self.status.configure(wraplength=185, justify="left")
-        self.hint = self.make_label("Right-click to hide 20s", 218, 140, font=("Segoe UI", 8), fg=MUTED)
+        self.title = self.make_label("Codex Usage", 22, 20, font=self.font(14, "bold"))
+        self.plan = self.make_label("", 170, 22, font=self.font(9), fg=MUTED)
+        self.status = self.make_label("Loading...", 22, 140, font=self.font(8), fg=MUTED)
+        self.status.configure(wraplength=self.s(185), justify="left")
+        self.hint = self.make_label("Right-click to hide 20s", 218, 140, font=self.font(8), fg=MUTED)
 
-        self.make_label("5h", 48, 60, font=("Segoe UI", 12, "bold"))
-        self.session_percent = self.make_label("--", 242, 60, font=("Segoe UI", 12, "bold"), anchor="e", width=4)
-        self.session_reset = self.make_label("--", 290, 60, font=("Segoe UI", 11), fg=MUTED, anchor="w", width=8)
+        self.make_label("5h", 48, 60, font=self.font(12, "bold"))
+        self.session_percent = self.make_label("--", 242, 60, font=self.font(12, "bold"), anchor="e", width=4)
+        self.session_reset = self.make_label("--", 290, 60, font=self.font(11), fg=MUTED, anchor="w", width=8)
 
-        self.make_label("Weekly", 48, 98, font=("Segoe UI", 12, "bold"))
-        self.weekly_percent = self.make_label("--", 242, 98, font=("Segoe UI", 12, "bold"), anchor="e", width=4)
-        self.weekly_reset = self.make_label("--", 290, 98, font=("Segoe UI", 11), fg=MUTED, anchor="w", width=8)
+        self.make_label("Weekly", 48, 98, font=self.font(12, "bold"))
+        self.weekly_percent = self.make_label("--", 242, 98, font=self.font(12, "bold"), anchor="e", width=4)
+        self.weekly_reset = self.make_label("--", 290, 98, font=self.font(11), fg=MUTED, anchor="w", width=8)
 
         self.close_button = Button(
             self.root,
@@ -357,9 +369,9 @@ class UsageWidget:
             activebackground=PANEL,
             activeforeground=TEXT,
             command=self.close,
-            font=("Segoe UI", 10),
+            font=self.font(10),
         )
-        self.canvas.create_window(WIDTH - 28, 22, window=self.close_button, width=22, height=22)
+        self.canvas.create_window(self.width - self.s(28), self.s(22), window=self.close_button, width=self.s(22), height=self.s(22))
 
         self.refresh_button = Button(
             self.root,
@@ -371,9 +383,9 @@ class UsageWidget:
             activebackground=PANEL,
             activeforeground=TEXT,
             command=self.refresh_async,
-            font=("Segoe UI", 8),
+            font=self.font(8),
         )
-        self.canvas.create_window(WIDTH - 58, 150, window=self.refresh_button, width=60, height=22)
+        self.canvas.create_window(self.width - self.s(58), self.s(150), window=self.refresh_button, width=self.s(60), height=self.s(22))
 
         self.drag_x = 0
         self.drag_y = 0
@@ -386,6 +398,21 @@ class UsageWidget:
         self.root.bind_all("<ButtonPress-3>", self.hide_temporarily)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
+    def display_scale(self):
+        screen_width = self.root.winfo_screenwidth()
+        screen_scale = screen_width / BASE_SCREEN_WIDTH
+        sidebar_scale = MAX_SIDEBAR_WIDTH / BASE_WIDTH
+        return max(MIN_SCALE, min(MAX_SCALE, screen_scale, sidebar_scale))
+
+    def s(self, value):
+        return int(round(value * self.scale))
+
+    def font(self, size, weight=None):
+        scaled_size = max(7, int(round(size * self.scale)))
+        if weight:
+            return ("Segoe UI", scaled_size, weight)
+        return ("Segoe UI", scaled_size)
+
     def apply_start_geometry(self):
         state = load_state()
         x = state.get("x")
@@ -394,14 +421,14 @@ class UsageWidget:
         if not isinstance(x, int) or not isinstance(y, int):
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight()
-            x = 32
-            y = max(32, screen_height - HEIGHT - 96)
+            x = self.s(32)
+            y = max(self.s(32), screen_height - self.height - self.s(96))
 
-        self.root.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
+        self.root.geometry(f"{self.width}x{self.height}+{x}+{y}")
 
     def make_label(self, text, x, y, font, fg=TEXT, anchor="w", width=0):
         label = Label(self.root, text=text, bg=PANEL, fg=fg, font=font, anchor=anchor, width=width)
-        self.canvas.create_window(x, y, window=label, anchor=NW)
+        self.canvas.create_window(self.s(x), self.s(y), window=label, anchor=NW)
         self.drag_handles.append(label)
         return label
 
@@ -425,8 +452,9 @@ class UsageWidget:
             {
                 "x": self.root.winfo_x(),
                 "y": self.root.winfo_y(),
-                "width": WIDTH,
-                "height": HEIGHT,
+                "width": self.width,
+                "height": self.height,
+                "scale": self.scale,
             }
         )
 
@@ -437,7 +465,7 @@ class UsageWidget:
     def current_bounds(self):
         x = self.root.winfo_x()
         y = self.root.winfo_y()
-        return x, y, x + WIDTH, y + HEIGHT
+        return x, y, x + self.width, y + self.height
 
     def cursor_inside_last_bounds(self):
         if self.last_bounds is None:
