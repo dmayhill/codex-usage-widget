@@ -13,6 +13,7 @@ from tkinter import BOTH, NW, Button, Canvas, Label, Tk
 
 
 REFRESH_SECONDS = 5 * 60
+REFRESH_RETRY_SECONDS = 3
 VISIBILITY_CHECK_MS = 250
 SHOW_ONLY_WHEN_CODEX_FOCUSED = True
 HIDE_ON_HOVER = False
@@ -304,16 +305,25 @@ def load_usage():
             startupinfo.wShowWindow = 0
             creationflags = CREATE_NO_WINDOW
 
-        result = subprocess.run(
-            [command, "json"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-            startupinfo=startupinfo,
-            creationflags=creationflags,
-        )
-        return normalize_usage(json.loads(result.stdout))
+        last_error = None
+        for attempt in range(2):
+            try:
+                result = subprocess.run(
+                    [command, "json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                    startupinfo=startupinfo,
+                    creationflags=creationflags,
+                )
+                return normalize_usage(json.loads(result.stdout))
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt == 0:
+                    time.sleep(REFRESH_RETRY_SECONDS)
+
+        raise last_error
 
     cache_path = Path.home() / ".codex" / "usage-limits.json"
     if cache_path.exists():
@@ -348,8 +358,9 @@ class UsageWidget:
         self.title = self.make_label("Codex Usage", 22, 20, font=self.font(14, "bold"))
         self.plan = self.make_label("", 170, 22, font=self.font(9), fg=MUTED)
         self.status = self.make_label("Loading...", 22, 140, font=self.font(8), fg=MUTED)
-        self.status.configure(wraplength=self.s(185), justify="left")
-        self.hint = self.make_label("Right-click to hide 20s", 218, 140, font=self.font(8), fg=MUTED)
+        self.status.configure(wraplength=self.s(130), justify="left")
+        self.hint = self.make_label("Right-click\nto hide 20s", 210, 132, font=self.font(8), fg=MUTED)
+        self.hint.configure(justify="center", wraplength=self.s(62))
 
         self.make_label("5h", 48, 60, font=self.font(12, "bold"))
         self.session_percent = self.make_label("--", 242, 60, font=self.font(12, "bold"), anchor="e", width=4)
@@ -392,6 +403,8 @@ class UsageWidget:
         self.hidden_for_hover = False
         self.hidden_until = 0
         self.last_bounds = None
+        self.last_usage = None
+        self.refreshing = False
         self.bind_drag_handle(self.canvas)
         for handle in self.drag_handles:
             self.bind_drag_handle(handle)
@@ -516,6 +529,7 @@ class UsageWidget:
         self.status.configure(text=message, fg=ERROR if error else MUTED)
 
     def apply_usage(self, usage):
+        self.last_usage = usage
         plan = usage.get("plan", "")
         self.plan.configure(text=plan)
 
@@ -528,18 +542,38 @@ class UsageWidget:
         self.set_status("Updated " + datetime.now().strftime("%I:%M %p").lstrip("0"))
 
     def refresh_async(self):
+        if self.refreshing:
+            return
+        self.refreshing = True
         self.set_status("Refreshing...")
         thread = threading.Thread(target=self.refresh_worker, daemon=True)
         thread.start()
+
+    def finish_refresh(self):
+        self.refreshing = False
+
+    def apply_refresh_error(self, exc):
+        if self.last_usage:
+            self.set_status("Refresh failed\nlast data shown", error=True)
+            return
+
+        if isinstance(exc, subprocess.CalledProcessError):
+            message = "Usage tool failed. Try reopening Codex."
+        elif isinstance(exc, subprocess.TimeoutExpired):
+            message = "Usage refresh timed out."
+        else:
+            message = "Could not load usage data."
+        self.set_status(message, error=True)
 
     def refresh_worker(self):
         try:
             usage = load_usage()
         except Exception as exc:
-            message = str(exc)
-            self.root.after(0, lambda: self.set_status(message, error=True))
+            self.root.after(0, lambda: self.apply_refresh_error(exc))
+            self.root.after(0, self.finish_refresh)
             return
         self.root.after(0, lambda: self.apply_usage(usage))
+        self.root.after(0, self.finish_refresh)
 
     def schedule_refresh(self):
         self.refresh_async()
