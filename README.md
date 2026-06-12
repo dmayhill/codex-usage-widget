@@ -54,18 +54,28 @@ Quiet launcher, recommended for normal use:
 Visible launcher, useful for debugging startup errors:
 
 ```powershell
-.\start-codex-usage-widget.cmd
+.\start-codex-usage-widget-debug.cmd
 ```
 
-The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `.cmd` launcher intentionally leaves a visible console available when troubleshooting. The `.ps1` launcher prefers `pythonw.exe`, so the widget itself can run without leaving a console window open.
+Reset-and-recenter launcher, useful if the widget gets remembered off-screen after an RDP session or monitor change:
+
+```powershell
+.\reset-codex-usage-widget-debug.cmd
+```
+
+The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `-debug.cmd` launchers intentionally leave a visible console available when troubleshooting. The `.ps1` launcher prefers `pythonw.exe`, so the widget itself can run without leaving a console window open.
+
+Every launch first closes any already-running `codex_usage_widget.py` instances, so repeated starts won’t leave duplicate widgets behind.
 
 ## Behavior
 
 The widget is configured to:
 
 - show only while the focused process path contains `codex`
-- start near the lower-left of the screen
 - remember its last dragged position
+- clamp restored positions to the current monitor work area
+- preserve the last known good position separately from the most recent attempt
+- fall back to a centered position when no valid saved location exists
 - refresh automatically every 5 minutes
 - hide for 20 seconds when you right-click it, so you can click whatever is behind it
 
@@ -94,7 +104,7 @@ For another Windows PC, the simplest deployment is:
 
 1. Copy or clone this repository.
 2. Run `.\install-windows.ps1`.
-3. Run `.\start-codex-usage-widget.cmd`.
+3. Run `.\start-codex-usage-widget.vbs`.
 
 For a more app-like deployment, build a standalone executable:
 

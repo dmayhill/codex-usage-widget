@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import shutil
@@ -6,6 +7,7 @@ import sys
 import threading
 import time
 import ctypes
+import traceback
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +42,23 @@ CREATE_NO_WINDOW = 0x08000000
 user32 = ctypes.windll.user32 if sys.platform == "win32" else None
 kernel32 = ctypes.windll.kernel32 if sys.platform == "win32" else None
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+MONITOR_DEFAULTTONEAREST = 2
+SPI_GETWORKAREA = 0x0030
+SM_CXSCREEN = 0
+SM_CYSCREEN = 1
+
+
+class RECT(ctypes.Structure):
+    _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG), ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", RECT),
+        ("rcWork", RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
 
 
 class POINT(ctypes.Structure):
@@ -116,6 +135,94 @@ def load_state():
 
 def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def clamp(value, lower, upper):
+    return max(lower, min(upper, value))
+
+
+def geometry_from_state(state):
+    if not isinstance(state, dict):
+        return None
+    keys = ("x", "y", "width", "height", "scale")
+    if all(key in state for key in keys):
+        return {key: state.get(key) for key in keys}
+    return None
+
+
+def state_with_geometry(state, geometry, include_last_good=False):
+    payload = dict(state) if isinstance(state, dict) else {}
+    payload.update(geometry)
+    if include_last_good:
+        payload["last_good"] = dict(geometry)
+    return payload
+
+
+def default_work_area():
+    if sys.platform != "win32" or user32 is None:
+        return 0, 0, BASE_SCREEN_WIDTH, BASE_HEIGHT * 3
+    rect = RECT()
+    if user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+        return rect.left, rect.top, rect.right, rect.bottom
+    return 0, 0, user32.GetSystemMetrics(SM_CXSCREEN), user32.GetSystemMetrics(SM_CYSCREEN)
+
+
+def work_area_for_point(point=None):
+    if sys.platform != "win32" or user32 is None:
+        return default_work_area()
+
+    if point is None:
+        point = cursor_position() or (0, 0)
+
+    try:
+        x, y = point
+    except (TypeError, ValueError):
+        x, y = 0, 0
+
+    monitor = user32.MonitorFromPoint(POINT(x, y), MONITOR_DEFAULTTONEAREST)
+    if monitor:
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            work = info.rcWork
+            return work.left, work.top, work.right, work.bottom
+
+    return default_work_area()
+
+
+def clamp_geometry_to_work_area(geometry, work_area):
+    if not geometry:
+        return None
+
+    x = geometry.get("x")
+    y = geometry.get("y")
+    width = geometry.get("width")
+    height = geometry.get("height")
+    scale = geometry.get("scale")
+
+    if not all(isinstance(value, int) for value in (x, y, width, height)):
+        return None
+
+    left, top, right, bottom = work_area
+    max_x = max(left, right - width)
+    max_y = max(top, bottom - height)
+
+    return {
+        "x": clamp(x, left, max_x),
+        "y": clamp(y, top, max_y),
+        "width": width,
+        "height": height,
+        "scale": scale,
+    }
+
+
+def centered_geometry(width, height, work_area):
+    left, top, right, bottom = work_area
+    work_width = max(1, right - left)
+    work_height = max(1, bottom - top)
+    x = left + max(0, (work_width - width) // 2)
+    y = top + max(0, (work_height - height) // 2)
+    return {"x": x, "y": y, "width": width, "height": height, "scale": None}
 
 
 def rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
@@ -428,16 +535,21 @@ class UsageWidget:
 
     def apply_start_geometry(self):
         state = load_state()
-        x = state.get("x")
-        y = state.get("y")
+        current = geometry_from_state(state)
+        last_good = geometry_from_state(state.get("last_good")) if isinstance(state, dict) else None
+        work_area = work_area_for_point((current["x"], current["y"])) if current else work_area_for_point()
+        selected = clamp_geometry_to_work_area(current, work_area) if current else None
 
-        if not isinstance(x, int) or not isinstance(y, int):
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            x = self.s(32)
-            y = max(self.s(32), screen_height - self.height - self.s(96))
+        if selected is None:
+            selected = clamp_geometry_to_work_area(last_good, work_area) if last_good else None
 
-        self.root.geometry(f"{self.width}x{self.height}+{x}+{y}")
+        if selected is None:
+            selected = centered_geometry(self.width, self.height, work_area)
+            selected["scale"] = self.scale
+
+        self.root.geometry(f"{self.width}x{self.height}+{selected['x']}+{selected['y']}")
+        if isinstance(state, dict):
+            save_state(state_with_geometry(state, selected, include_last_good=False))
 
     def make_label(self, text, x, y, font, fg=TEXT, anchor="w", width=0):
         label = Label(self.root, text=text, bg=PANEL, fg=fg, font=font, anchor=anchor, width=width)
@@ -461,15 +573,22 @@ class UsageWidget:
         self.root.geometry(f"+{x}+{y}")
 
     def save_position(self, _event=None):
-        save_state(
-            {
-                "x": self.root.winfo_x(),
-                "y": self.root.winfo_y(),
-                "width": self.width,
-                "height": self.height,
-                "scale": self.scale,
-            }
-        )
+        geometry = {
+            "x": self.root.winfo_x(),
+            "y": self.root.winfo_y(),
+            "width": self.width,
+            "height": self.height,
+            "scale": self.scale,
+        }
+        payload = state_with_geometry(load_state(), geometry, include_last_good=True)
+        save_state(payload)
+
+    def reset_position(self):
+        work_area = work_area_for_point()
+        geometry = centered_geometry(self.width, self.height, work_area)
+        geometry["scale"] = self.scale
+        self.root.geometry(f"{self.width}x{self.height}+{geometry['x']}+{geometry['y']}")
+        save_state(state_with_geometry(load_state(), geometry, include_last_good=True))
 
     def close(self):
         self.save_position()
@@ -585,5 +704,35 @@ class UsageWidget:
         self.root.mainloop()
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("--reset-position", action="store_true", help="Center the widget and remember that position.")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    widget = UsageWidget()
+    if args.reset_position:
+        widget.reset_position()
+    widget.run()
+
+
 if __name__ == "__main__":
-    UsageWidget().run()
+    try:
+        main()
+    except Exception as exc:
+        message = (
+            "Codex Usage Widget could not start.\n\n"
+            f"{exc.__class__.__name__}: {exc}\n\n"
+            "This usually means the selected Python install cannot load Tk/Tcl."
+        )
+        show_message_box = sys.platform == "win32" and not sys.stderr.isatty()
+        if show_message_box:
+            try:
+                ctypes.windll.user32.MessageBoxW(0, message, "Codex Usage Widget", 0x10)
+            except Exception:
+                pass
+        print(message, file=sys.stderr)
+        traceback.print_exc()
+        raise SystemExit(1)
