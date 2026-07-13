@@ -71,7 +71,7 @@ Every launch first closes any already-running `codex_usage_widget.py` instances,
 
 The widget is configured to:
 
-- show only while the focused process path contains `codex`
+- show only while the focused app is `codex.exe`, or `ChatGPT.exe` with a `Codex`/`ChatGPT Codex` title; Store packaging uses the constrained title fallback
 - remember its last dragged position
 - clamp restored positions to the current monitor work area
 - preserve the last known good position separately from the most recent attempt

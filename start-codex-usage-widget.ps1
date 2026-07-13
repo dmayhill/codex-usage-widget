@@ -46,6 +46,10 @@ function Wait-On-Error {
     Read-Host "Press Enter to close"
 }
 
+# A PyInstaller parent can leak its bundled Tcl/Tk paths into this process.
+# They are incompatible with the standalone Python runtime used by the widget.
+Remove-Item Env:TCL_LIBRARY -ErrorAction SilentlyContinue
+Remove-Item Env:TK_LIBRARY -ErrorAction SilentlyContinue
 Stop-ExistingWidgetProcesses -WidgetPath $Widget
 
 if ($DebugLauncher) {
