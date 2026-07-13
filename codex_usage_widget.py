@@ -163,7 +163,13 @@ def read_state(path):
 def load_state(path=None):
     path = path or state_path()
     legacy_path = legacy_state_path()
-    if path.exists() or not getattr(sys, "frozen", False) or not legacy_path.exists():
+    try:
+        path_exists = path.exists()
+        legacy_exists = legacy_path.exists()
+    except OSError:
+        return {}
+
+    if path_exists or not getattr(sys, "frozen", False) or not legacy_exists:
         return read_state(path)
 
     state = read_state(legacy_path)

@@ -66,6 +66,10 @@ class StatePersistenceTests(unittest.TestCase):
         path.write_text("not json", encoding="utf-8")
         self.assertEqual(widget.load_state(path), {})
 
+    def test_inaccessible_state_path_falls_back_to_empty_state(self):
+        with patch.object(Path, "exists", side_effect=OSError("access denied")):
+            self.assertEqual(widget.load_state(self.root / "state.json"), {})
+
 
 class UsageNormalizationTests(unittest.TestCase):
     def test_utilization_is_shown_as_remaining_usage(self):
