@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import ctypes
@@ -12,7 +13,7 @@ from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
 from re import match
-from tkinter import BOTH, NW, Button, Canvas, Label, Tk
+from tkinter import BOTH, NW, Button, Canvas, Label, TclError, Tk
 
 
 REFRESH_SECONDS = 5 * 60
@@ -41,9 +42,10 @@ PANEL = "#2c2a2d"
 BORDER = "#44474d"
 TEXT = "#f2f2f2"
 MUTED = "#a8a8ad"
-ACCENT = "#d9d9df"
 ERROR = "#ffb4a8"
-STATE_PATH = Path(__file__).with_name("codex_usage_widget_state.json")
+STATE_FILE_NAME = "codex_usage_widget_state.json"
+APP_STATE_DIRECTORY = "CodexUsageWidget"
+SOURCE_STATE_PATH = Path(__file__).with_name(STATE_FILE_NAME)
 CREATE_NO_WINDOW = 0x08000000
 
 
@@ -135,18 +137,63 @@ def codex_has_focus():
         return True
     title = active_window_title().strip().lower()
     title_is_codex = any(match(pattern, title) for pattern in CODEX_WINDOW_TITLE_PATTERNS)
-    return process_name == "chatgpt.exe" and title_is_codex or (not process_name and title_is_codex)
+    return (process_name == "chatgpt.exe" and title_is_codex) or (not process_name and title_is_codex)
 
 
-def load_state():
+def state_path():
+    if not getattr(sys, "frozen", False):
+        return legacy_state_path()
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    return local_app_data / APP_STATE_DIRECTORY / STATE_FILE_NAME
+
+
+def legacy_state_path():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).with_name(STATE_FILE_NAME)
+    return SOURCE_STATE_PATH
+
+
+def read_state(path):
     try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
 
-def save_state(state):
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+def load_state(path=None):
+    path = path or state_path()
+    legacy_path = legacy_state_path()
+    if path.exists() or not getattr(sys, "frozen", False) or not legacy_path.exists():
+        return read_state(path)
+
+    state = read_state(legacy_path)
+    if state:
+        save_state(state, path)
+    return state
+
+
+def save_state(state, path=None):
+    path = path or state_path()
+    temporary_path = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            json.dump(state, temporary_file, indent=2)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+        return True
+    except OSError:
+        return False
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def clamp(value, lower, upper):
@@ -524,6 +571,7 @@ class UsageWidget:
         self.last_bounds = None
         self.last_usage = None
         self.refreshing = False
+        self.closing = False
         self.bind_drag_handle(self.canvas)
         for handle in self.drag_handles:
             self.bind_drag_handle(handle)
@@ -603,6 +651,9 @@ class UsageWidget:
         save_state(state_with_geometry(load_state(), geometry, include_last_good=True))
 
     def close(self):
+        if self.closing:
+            return
+        self.closing = True
         self.save_position()
         self.root.destroy()
 
@@ -683,6 +734,20 @@ class UsageWidget:
     def finish_refresh(self):
         self.refreshing = False
 
+    def schedule_ui_callback(self, callback):
+        if self.closing:
+            return False
+
+        def run_callback():
+            if not self.closing:
+                callback()
+
+        try:
+            self.root.after(0, run_callback)
+        except (RuntimeError, TclError):
+            return False
+        return True
+
     def apply_refresh_error(self, exc):
         if self.last_usage:
             self.set_status("Refresh failed\nlast data shown", error=True)
@@ -700,11 +765,11 @@ class UsageWidget:
         try:
             usage = load_usage()
         except Exception as exc:
-            self.root.after(0, lambda: self.apply_refresh_error(exc))
-            self.root.after(0, self.finish_refresh)
+            self.schedule_ui_callback(lambda: self.apply_refresh_error(exc))
+            self.schedule_ui_callback(self.finish_refresh)
             return
-        self.root.after(0, lambda: self.apply_usage(usage))
-        self.root.after(0, self.finish_refresh)
+        self.schedule_ui_callback(lambda: self.apply_usage(usage))
+        self.schedule_ui_callback(self.finish_refresh)
 
     def schedule_refresh(self):
         self.refresh_async()
