@@ -11,17 +11,25 @@ import traceback
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
+from re import match
 from tkinter import BOTH, NW, Button, Canvas, Label, Tk
 
 
 REFRESH_SECONDS = 5 * 60
 REFRESH_RETRY_SECONDS = 3
 VISIBILITY_CHECK_MS = 250
+# The Microsoft Store app's foreground process is not reliably observable.
+# CODEX_WINDOW_TITLE_PATTERNS provides the constrained fallback needed for it.
 SHOW_ONLY_WHEN_CODEX_FOCUSED = True
 HIDE_ON_HOVER = False
 RIGHT_CLICK_HIDE_SECONDS = 20
-CODEX_PROCESS_KEYWORDS = ("codex",)
-CODEX_WINDOW_KEYWORDS = ()
+# Microsoft Store apps can deny foreground process-path queries. Only accept
+# titles that identify the Codex app, rather than any title containing codex.
+CODEX_WINDOW_TITLE_PATTERNS = (
+    r"^codex(?:\s|$)",
+    r"^chatgpt\s+codex(?:\s|$)",
+)
+CODEX_PACKAGE_MARKER = "\\windowsapps\\openai.codex_"
 BASE_WIDTH = 420
 BASE_HEIGHT = 190
 BASE_SCREEN_WIDTH = 1920
@@ -119,11 +127,15 @@ def cursor_position():
 def codex_has_focus():
     if not SHOW_ONLY_WHEN_CODEX_FOCUSED:
         return True
-    process = active_process_path().lower()
-    if any(keyword in process for keyword in CODEX_PROCESS_KEYWORDS):
+    process_path = active_process_path().lower()
+    process_name = Path(process_path).name
+    if process_name == "codex.exe":
         return True
-    title = active_window_title().lower()
-    return bool(CODEX_WINDOW_KEYWORDS) and any(keyword in title for keyword in CODEX_WINDOW_KEYWORDS)
+    if process_name == "chatgpt.exe" and CODEX_PACKAGE_MARKER in process_path:
+        return True
+    title = active_window_title().strip().lower()
+    title_is_codex = any(match(pattern, title) for pattern in CODEX_WINDOW_TITLE_PATTERNS)
+    return process_name == "chatgpt.exe" and title_is_codex or (not process_name and title_is_codex)
 
 
 def load_state():

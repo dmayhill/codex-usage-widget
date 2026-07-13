@@ -71,7 +71,7 @@ Every launch first closes any already-running `codex_usage_widget.py` instances,
 
 The widget is configured to:
 
-- show only while the focused process path contains `codex`
+- show only while the focused app is `codex.exe`, or `ChatGPT.exe` with a `Codex`/`ChatGPT Codex` title; Store packaging uses the constrained title fallback
 - remember its last dragged position
 - clamp restored positions to the current monitor work area
 - preserve the last known good position separately from the most recent attempt
@@ -86,8 +86,11 @@ REFRESH_SECONDS = 5 * 60
 SHOW_ONLY_WHEN_CODEX_FOCUSED = True
 HIDE_ON_HOVER = False
 RIGHT_CLICK_HIDE_SECONDS = 20
-CODEX_PROCESS_KEYWORDS = ("codex",)
-CODEX_WINDOW_KEYWORDS = ()
+CODEX_WINDOW_TITLE_PATTERNS = (
+    r"^codex(?:\s|$)",
+    r"^chatgpt\s+codex(?:\s|$)",
+)
+CODEX_PACKAGE_MARKER = "\\windowsapps\\openai.codex_"
 ```
 
 The saved window position is written to:
