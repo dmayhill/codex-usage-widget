@@ -63,7 +63,7 @@ Reset-and-recenter launcher, useful if the widget gets remembered off-screen aft
 .\reset-codex-usage-widget-debug.cmd
 ```
 
-The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `-debug.cmd` launchers intentionally leave a visible console available when troubleshooting. The `.ps1` launcher prefers `pythonw.exe`, so the widget itself can run without leaving a console window open.
+The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `-debug.cmd` launchers intentionally leave a visible console available when troubleshooting. Quiet mode only uses `pythonw.exe`; it does not fall back to console-subsystem Python, so a missing GUI Python runtime fails quietly instead of flashing a command window.
 
 Every launch first closes any already-running `codex_usage_widget.py` instances, so repeated starts won’t leave duplicate widgets behind.
 

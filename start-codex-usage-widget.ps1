@@ -63,14 +63,12 @@ if ($DebugLauncher) {
         "pythonw"
     )
 } else {
+    # Quiet mode must never fall back to a console-subsystem Python executable.
+    # The debug launcher intentionally includes those candidates above.
     $PythonCandidates = @(
         (Join-Path $ScriptDir ".venv\Scripts\pythonw.exe"),
-        (Join-Path $ScriptDir ".venv\Scripts\python.exe"),
         "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe",
-        "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe",
-        "pythonw",
-        "python",
-        "py"
+        "pythonw"
     )
 }
 
