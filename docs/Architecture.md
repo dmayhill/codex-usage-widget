@@ -19,7 +19,7 @@ PowerShell, CMD, and VBScript files provide installation, launch, debug, reset, 
 ## Important files
 
 - `codex_usage_widget.py`: application entry point and all widget, Windows API, usage parsing, persistence, and refresh logic.
-- `scripts/start-codex-usage-widget.ps1`: stops duplicate instances, removes incompatible Tcl/Tk environment overrides, selects a Python runtime, and starts the widget from the repository root.
+- `scripts/start-codex-usage-widget.ps1`: removes incompatible Tcl/Tk environment overrides, selects a Python runtime, and starts the widget from the repository root; the application’s named mutex prevents duplicate instances.
 - `start-codex-usage-widget.vbs`: starts the PowerShell launcher hidden for normal use.
 - `scripts/start-codex-usage-widget-debug.cmd`: invokes the launcher with a visible troubleshooting console.
 - `scripts/reset-codex-usage-widget.ps1` and `scripts/reset-codex-usage-widget-debug.cmd`: start with `--reset-position`.

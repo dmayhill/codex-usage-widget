@@ -10,3 +10,4 @@ dist/
 pytest-cache-files-*/
 tests/tmp*/
 temp/
+.scratch/

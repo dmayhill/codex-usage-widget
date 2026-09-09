@@ -14,7 +14,7 @@ every five minutes.
 
 1. `README.md` for supported behavior and launch/install commands.
 2. `codex_usage_widget.py` for all application behavior.
-3. `scripts/start-codex-usage-widget.ps1` for Python selection, duplicate cleanup, debug mode, and environment handling.
+3. `scripts/start-codex-usage-widget.ps1` for Python selection, debug mode, and environment handling; duplicate launches are blocked by the application mutex.
 4. `pyproject.toml`, `scripts/install-windows.ps1`, and `scripts/build-exe.ps1` for packaging assumptions.
 5. `git log` and current `git status` before treating work as complete.
 
@@ -33,8 +33,9 @@ artifact cleanup. Ticket 04 synchronizes this documentation with that state. The
 visual walkthrough passed with no issues noted. The separate non-Store Codex installation and validation is intentionally
 skipped because it is not required for the supported environment and is not a release gate.
 
-The worktree remains intentionally dirty; inspect the diff and preserve unrelated user-owned changes before making further
-edits. Tickets 05–09 cover later integrated validation, release signoff, GitHub review, merge, and publication steps.
+Inspect the diff and preserve unrelated user-owned changes before making further edits. Tickets 05–06 cover integrated
+validation and supported visual sign-off; the GitHub review, merge, tag, and publication lifecycle is tracked externally by
+PR #4 and issue #3.
 
 ## Launcher and distribution workflow
 
@@ -58,7 +59,7 @@ The target machine still needs Codex login state and a working `codex-cli-usage`
 - Supported Microsoft Store Codex human visual walkthrough: passed with no issues noted.
 - Separate non-Store Codex validation: intentionally skipped and not required for the supported environment; it is not a
   release gate.
-- Integrated regression and packaging validation, followed by the later GitHub PR, merge, tag, and publication workflow,
-  remain separate tickets and were not performed by this documentation synchronization.
+- Integrated regression and packaging validation passed locally. The GitHub PR, merge, tag, and publication workflow is
+  tracked externally by PR #4 and issue #3; the non-Store Codex check remains intentionally outside the release gate.
 - The widget continues to depend on authenticated Codex state and the external `codex-cli-usage` tool; the standalone
   executable does not remove that prerequisite.

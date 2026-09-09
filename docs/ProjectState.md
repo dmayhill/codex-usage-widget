@@ -1,6 +1,6 @@
 # Project State
 
-_Snapshot: 2026-09-09. Based on the current working tree, repository history through `925a97f`, and the repository configuration._
+_Snapshot: 2026-09-09. Based on the v1.0.0 release candidate, checkpoint history through `ac5f81f`, and the repository configuration. GitHub lifecycle state is tracked externally by PR #4 and issue #3._
 
 ## Purpose
 
@@ -9,9 +9,8 @@ The Codex Usage Widget is a small Windows always-on-top widget that displays Cod
 ## Status and maturity
 
 Usable v1.0.0 utility. The main feature path, visible version label, cleaned Windows launcher layout, reliability fixes,
-automated validation configuration, and Windows CI configuration are implemented locally through ticket 04. The current
-worktree is intentionally dirty with those changes plus later release-ticket files; preserve unrelated existing changes
-when continuing.
+automated validation, Windows CI configuration, and supported manual sign-off are implemented. The standalone release
+artifact remains out of Git history and is attached only to the published GitHub release.
 
 ## Completed
 
@@ -20,20 +19,20 @@ when continuing.
 - Automatic refresh every five minutes, with one retry after transient usage-tool failures.
 - Visibility tied to Codex focus, including a window-title fallback for Store-style Codex windows in the current worktree.
 - Dragged-position persistence, monitor work-area clamping, last-known-good geometry, scaling for narrow sidebars, and reset/recenter support.
-- Quiet `.vbs` launcher, visible debug launchers, Python-runtime candidate fallback, duplicate-process cleanup, and standalone PyInstaller build script.
+- Quiet `.vbs` launcher, visible debug launchers, Python-runtime candidate fallback, named single-instance mutex, and standalone PyInstaller build script.
 - v1.0.0 runtime metadata and the subdued `v 1.0.0` label immediately left of the close button.
 - Cleaned repository layout with the root `.vbs` entry point and operational PowerShell/CMD helpers under `scripts/`.
 - Focused tests for usage parsing, state persistence/migration, bounded diagnostics, focus detection, refresh behavior, and launcher/packaging assumptions.
 - Windows push/PR validation workflow covering tests, Python compilation, and a non-publishing standalone-package smoke check.
 - Documentation synchronized with the v1.0.0 launcher, packaging, and release-acceptance state.
 
-## Work in progress
+## Release boundary
 
 - The supported Microsoft Store Codex human visual walkthrough passed with no issues noted. The separate non-Store Codex
   installation and validation is intentionally skipped because it is not required for the supported environment and is not
   a release gate.
-- Ticket 05 integrated regression and packaging validation, followed by tickets 06–09 release signoff, GitHub review/merge,
-  and publication, remain to be completed.
+- Tickets 05 and 06 integrated validation and supported visual sign-off passed. GitHub review/merge and publication are
+  tracked by PR #4 and issue #3; the separate non-Store Codex installation remains intentionally outside the release gate.
 
 ## Remaining work and known limitations
 
@@ -43,8 +42,8 @@ when continuing.
 - The standalone executable workflow is documented: run `scripts/install-windows.ps1`, then `scripts/build-exe.ps1`, and
   distribute the resulting `dist\CodexUsageWidget.exe`. The target machine still needs Codex login state and
   `codex-cli-usage`.
-- The later integrated validation, GitHub PR, merge, tag, and publication steps have not been performed by this
-  documentation-only ticket.
+- Generated build, distribution, specification, runtime-state, cache, and temporary validation artifacts remain ignored
+  and are removed from the working tree after release publication when no longer needed.
 
 ## Validation and release
 
@@ -63,11 +62,11 @@ usage-data source.
   environment and is not a release gate.
 - Documentation/reference checks for ticket 04: performed locally; no application behavior or archived review evidence was
   changed.
-- Integrated regression, packaging-build, and publication checks: not run by this documentation-only ticket; ticket 05 and
-  later tickets own those checks.
+- Integrated regression: 40 tests passed. Source compilation passed without writing bytecode. Pinned PyInstaller 6.21.0
+  produced a non-empty standalone executable. GitHub workflow and release-publication state are tracked by PR #4 and
+  issue #3.
 
 ## Priorities
 
-1. Run integrated regression and packaging validation for the v1.0.0 work.
-2. Complete the remaining supported-environment release signoff and GitHub release workflow.
-3. Keep the README, continuity docs, and CI workflow synchronized when runtime or packaging behavior changes.
+1. Complete the v1.0.0 GitHub review, merge, tag, and publication workflow tracked by PR #4 and issue #3.
+2. Keep the README, continuity docs, and CI workflow synchronized when runtime or packaging behavior changes.
