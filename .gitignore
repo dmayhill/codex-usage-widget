@@ -1,7 +1,13 @@
 __pycache__/
 *.py[cod]
 codex_usage_widget_state.json
+codex_usage_widget.log*
 build/
 dist/
 *.spec
 .venv/
+.pytest_cache/
+pytest-cache-files-*/
+tests/tmp*/
+temp/
+.scratch/

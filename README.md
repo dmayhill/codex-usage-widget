@@ -2,6 +2,9 @@
 
 A small Windows widget that keeps Codex usage visible while you work.
 
+This is the `v1.0.0` release. The widget displays the visible version label
+`v 1.0.0` in small, muted text immediately to the left of the `x` close button.
+
 It shows Codex-style remaining usage for:
 
 - `5h`
@@ -30,18 +33,23 @@ The widget itself uses only the Python standard library. `codex-cli-usage` is us
 Open PowerShell in this folder and run:
 
 ```powershell
-.\install-windows.ps1
+.\scripts\install-windows.ps1
 ```
 
-That script installs `uv` if needed, installs `codex-cli-usage`, and checks that usage JSON can be read.
+That script installs the pinned `codex-cli-usage` version, and checks that usage JSON can be read. If `uv` is missing, it prints official installation guidance and exits without downloading or executing a remote script.
 
 You can also install the dependency manually:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uv tool install codex-cli-usage
+winget install --id=astral-sh.uv -e
+uv tool install --force codex-cli-usage==0.1.7
 codex-cli-usage json
 ```
+
+The installer and build pins are kept in [`scripts/dependency-versions.ps1`](scripts/dependency-versions.ps1).
+
+If `uv` is missing, both the installer and packaging script stop and print the official installation page plus the
+official Windows package-manager command. They do not download or execute a remote installation script.
 
 ## Run
 
@@ -54,18 +62,47 @@ Quiet launcher, recommended for normal use:
 Visible launcher, useful for debugging startup errors:
 
 ```powershell
-.\start-codex-usage-widget-debug.cmd
+.\scripts\start-codex-usage-widget-debug.cmd
 ```
 
 Reset-and-recenter launcher, useful if the widget gets remembered off-screen after an RDP session or monitor change:
 
 ```powershell
-.\reset-codex-usage-widget-debug.cmd
+.\scripts\reset-codex-usage-widget-debug.cmd
 ```
 
-The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `-debug.cmd` launchers intentionally leave a visible console available when troubleshooting. The `.ps1` launcher prefers `pythonw.exe`, so the widget itself can run without leaving a console window open.
+The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startup console flash. The `-debug.cmd` launchers intentionally leave a visible console available when troubleshooting. Quiet mode only uses `pythonw.exe`; it does not fall back to console-subsystem Python, so a missing GUI Python runtime fails quietly instead of flashing a command window.
 
-Every launch first closes any already-running `codex_usage_widget.py` instances, so repeated starts won’t leave duplicate widgets behind.
+The widget uses a named single-instance mutex, so repeated starts do not create duplicate widgets. The launcher selects a
+Python runtime and starts the widget from the repository root.
+
+## Repository layout
+
+The committed operational layout keeps the quiet VBS entry point at the repository root and places the PowerShell and CMD
+helpers under `scripts/`:
+
+```text
+.gitignore
+LICENSE
+README.md
+codex_usage_widget.py
+pyproject.toml
+start-codex-usage-widget.vbs
+.github/
+docs/
+scripts/
+  build-exe.ps1
+  dependency-versions.ps1
+  install-windows.ps1
+  reset-codex-usage-widget-debug.cmd
+  reset-codex-usage-widget.ps1
+  start-codex-usage-widget-debug.cmd
+  start-codex-usage-widget.ps1
+tests/
+```
+
+Run the root-level `.vbs` launcher for normal use. Use the helpers under `scripts/` for installation, debugging, reset,
+and packaging; there are no root-level PowerShell or CMD launchers.
 
 ## Behavior
 
@@ -96,17 +133,32 @@ CODEX_PACKAGE_MARKER = "\\windowsapps\\openai.codex_"
 The saved window position is written to:
 
 ```text
-codex_usage_widget_state.json
+source run:   <repository>\codex_usage_widget_state.json
+packaged run: %LOCALAPPDATA%\CodexUsageWidget\codex_usage_widget_state.json
 ```
 
-That file is intentionally ignored by Git.
+Source runs keep the state file beside `codex_usage_widget.py`. Packaged runs keep it in the per-user local
+application-data directory. If a packaged executable finds the old state file beside the executable, it migrates that
+state to the local-application-data path. State files are machine-local and intentionally ignored by Git.
 
-## Packaging
+When startup, state persistence, or usage refresh fails, the widget writes bounded diagnostics beside the active state
+file:
 
-For another Windows PC, the simplest deployment is:
+```text
+source run:   <repository>\codex_usage_widget.log
+packaged run: %LOCALAPPDATA%\CodexUsageWidget\codex_usage_widget.log
+```
+
+The log rotates at 256 KB and keeps one backup. Entries contain a timestamp, phase, exception type, and relevant paths;
+usage payloads and exception messages are not copied into the log. Runtime logs and their rotated backups are ignored by
+Git.
+
+## Packaging and standalone distribution
+
+For source deployment on another Windows PC:
 
 1. Copy or clone this repository.
-2. Run `.\install-windows.ps1`.
+2. Run `.\scripts\install-windows.ps1`.
 3. Run `.\start-codex-usage-widget.vbs`.
 
 For a more app-like deployment, build a standalone executable:
@@ -115,13 +167,36 @@ For a more app-like deployment, build a standalone executable:
 .\scripts\build-exe.ps1
 ```
 
-That uses PyInstaller through `uvx` and writes:
+That uses the pinned PyInstaller version through `uvx` (or `uv tool run`) and writes:
 
 ```text
 dist\CodexUsageWidget.exe
 ```
 
 Even with the standalone widget executable, the target machine still needs Codex login state and a working `codex-cli-usage` install unless the widget is later changed to call Codex's usage endpoint directly.
+
+For the v1.0.0 standalone distribution workflow, run the installer check and `.\scripts\build-exe.ps1` on the build machine,
+then distribute `dist\CodexUsageWidget.exe` as the executable release artifact. The generated `build/`, `dist/`, and
+PyInstaller spec files remain local build outputs and are ignored by Git.
+
+## Validation
+
+Focused automated tests cover usage normalization, state migration and validation, diagnostics, focus detection, and
+launcher/packaging assumptions. Run them from the repository root with:
+
+```powershell
+python -m pytest -q
+python -m compileall -q codex_usage_widget.py tests
+```
+
+The Windows CI workflow runs on pushes and pull requests. It uses Python 3.12, `pytest==8.4.1`, compiles the Python
+sources, installs `uv==0.11.17` for the packaging smoke test, builds with the pinned PyInstaller version, and verifies
+that `dist\CodexUsageWidget.exe` exists and is non-empty. The workflow does not publish a release.
+
+For v1.0.0 release acceptance, the supported Microsoft Store Codex human visual walkthrough passed with no issues noted.
+The separate non-Store Codex installation and validation is intentionally skipped because it is not required for the
+supported environment and is not a release gate. Before distributing the standalone executable, still run the installer
+check, confirm `codex-cli-usage json` returns usage data on the target machine, and run `.\scripts\build-exe.ps1`.
 
 ## Credits
 

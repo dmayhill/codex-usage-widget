@@ -1,7 +1,11 @@
 import argparse
+import importlib.util
 import json
+import logging
+import math
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -11,14 +15,18 @@ import ctypes
 import traceback
 from ctypes import wintypes
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from re import match
 from tkinter import BOTH, NW, Button, Canvas, Label, TclError, Tk
+from urllib.parse import urlsplit
 
 
 REFRESH_SECONDS = 5 * 60
 REFRESH_RETRY_SECONDS = 3
 VISIBILITY_CHECK_MS = 250
+APP_VERSION = "1.0.0"
+VERSION_LABEL_TEXT = f"v {APP_VERSION}"
 # The Microsoft Store app's foreground process is not reliably observable.
 # CODEX_WINDOW_TITLE_PATTERNS provides the constrained fallback needed for it.
 SHOW_ONLY_WHEN_CODEX_FOCUSED = True
@@ -46,7 +54,17 @@ ERROR = "#ffb4a8"
 STATE_FILE_NAME = "codex_usage_widget_state.json"
 APP_STATE_DIRECTORY = "CodexUsageWidget"
 SOURCE_STATE_PATH = Path(__file__).with_name(STATE_FILE_NAME)
+DIAGNOSTIC_LOG_NAME = "codex_usage_widget.log"
+DIAGNOSTIC_MAX_BYTES = 256 * 1024
+DIAGNOSTIC_BACKUP_COUNT = 1
 CREATE_NO_WINDOW = 0x08000000
+PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+USAGE_TIMEOUT_SECONDS = 10
+USAGE_MAX_ATTEMPTS = 2
+USAGE_COMMAND_NAME = "codex-cli-usage"
+INSTANCE_MUTEX_NAME = r"Local\CodexUsageWidget"
+ERROR_ALREADY_EXISTS = 183
+DIAGNOSTIC_LOCK = threading.Lock()
 
 
 user32 = ctypes.windll.user32 if sys.platform == "win32" else None
@@ -56,6 +74,16 @@ MONITOR_DEFAULTTONEAREST = 2
 SPI_GETWORKAREA = 0x0030
 SM_CXSCREEN = 0
 SM_CYSCREEN = 1
+
+
+if kernel32 is not None:
+    kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.GetLastError.restype = wintypes.DWORD
+    kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+    kernel32.ReleaseMutex.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 class RECT(ctypes.Structure):
@@ -73,6 +101,38 @@ class MONITORINFO(ctypes.Structure):
 
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class SingleInstanceLock:
+    def __init__(self, handle=None):
+        self.handle = handle
+
+    def release(self):
+        if self.handle is None or kernel32 is None:
+            return
+
+        handle = self.handle
+        self.handle = None
+        try:
+            kernel32.ReleaseMutex(handle)
+        finally:
+            kernel32.CloseHandle(handle)
+
+
+def acquire_instance_lock():
+    if kernel32 is None:
+        return SingleInstanceLock()
+
+    handle = kernel32.CreateMutexW(None, True, INSTANCE_MUTEX_NAME)
+    if not handle:
+        error_code = kernel32.GetLastError()
+        raise ctypes.WinError(error_code)
+
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        return None
+
+    return SingleInstanceLock(handle)
 
 
 def active_window_title():
@@ -102,7 +162,10 @@ def active_process_path():
     if not process_id.value:
         return ""
 
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id.value)
+    try:
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id.value)
+    except OSError:
+        return ""
     if not handle:
         return ""
 
@@ -111,6 +174,8 @@ def active_process_path():
         buffer = ctypes.create_unicode_buffer(size.value)
         if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
             return buffer.value
+    except OSError:
+        return ""
     finally:
         kernel32.CloseHandle(handle)
 
@@ -129,15 +194,21 @@ def cursor_position():
 def codex_has_focus():
     if not SHOW_ONLY_WHEN_CODEX_FOCUSED:
         return True
-    process_path = active_process_path().lower()
+    title = (active_window_title() or "").strip().lower()
+    if any(match(pattern, title) for pattern in CODEX_WINDOW_TITLE_PATTERNS):
+        return True
+
+    try:
+        process_path = (active_process_path() or "").lower()
+    except OSError:
+        return False
+
     process_name = Path(process_path).name
     if process_name == "codex.exe":
         return True
     if process_name == "chatgpt.exe" and CODEX_PACKAGE_MARKER in process_path:
         return True
-    title = active_window_title().strip().lower()
-    title_is_codex = any(match(pattern, title) for pattern in CODEX_WINDOW_TITLE_PATTERNS)
-    return (process_name == "chatgpt.exe" and title_is_codex) or (not process_name and title_is_codex)
+    return False
 
 
 def state_path():
@@ -153,10 +224,48 @@ def legacy_state_path():
     return SOURCE_STATE_PATH
 
 
+def diagnostic_log_path():
+    return state_path().with_name(DIAGNOSTIC_LOG_NAME)
+
+
+def write_diagnostic(phase, exc, paths=()):
+    """Write bounded diagnostics without copying exception messages or payloads."""
+    try:
+        path = diagnostic_log_path()
+        safe_paths = [str(item) for item in paths if item is not None]
+        details = [phase, exc.__class__.__name__]
+        details.extend(f"path={item}" for item in safe_paths)
+        logger = logging.getLogger("codex_usage_widget.diagnostic")
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+
+        with DIAGNOSTIC_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(
+                path,
+                maxBytes=DIAGNOSTIC_MAX_BYTES,
+                backupCount=DIAGNOSTIC_BACKUP_COUNT,
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z"))
+            logger.addHandler(handler)
+            try:
+                logger.error(" | ".join(details))
+            finally:
+                logger.removeHandler(handler)
+                handler.close()
+        return True
+    except Exception:
+        return False
+
+
 def read_state(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        write_diagnostic("state", exc, (path,))
         return {}
 
 
@@ -166,7 +275,8 @@ def load_state(path=None):
     try:
         path_exists = path.exists()
         legacy_exists = legacy_path.exists()
-    except OSError:
+    except OSError as exc:
+        write_diagnostic("state", exc, (path, legacy_path))
         return {}
 
     if path_exists or not getattr(sys, "frozen", False) or not legacy_exists:
@@ -192,7 +302,8 @@ def save_state(state, path=None):
             os.fsync(temporary_file.fileno())
         os.replace(temporary_path, path)
         return True
-    except OSError:
+    except OSError as exc:
+        write_diagnostic("state", exc, (path,))
         return False
     finally:
         if temporary_path is not None:
@@ -210,9 +321,26 @@ def geometry_from_state(state):
     if not isinstance(state, dict):
         return None
     keys = ("x", "y", "width", "height", "scale")
-    if all(key in state for key in keys):
-        return {key: state.get(key) for key in keys}
-    return None
+    if not all(key in state for key in keys):
+        return None
+
+    geometry = {key: state.get(key) for key in keys}
+    coordinates_and_size = (geometry["x"], geometry["y"], geometry["width"], geometry["height"])
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in coordinates_and_size):
+        return None
+    if geometry["width"] <= 0 or geometry["height"] <= 0:
+        return None
+
+    scale = geometry["scale"]
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)):
+        return None
+    try:
+        scale_is_valid = math.isfinite(scale) and MIN_SCALE <= scale <= MAX_SCALE
+    except (OverflowError, TypeError):
+        return None
+    if not scale_is_valid:
+        return None
+    return geometry
 
 
 def state_with_geometry(state, geometry, include_last_good=False):
@@ -256,7 +384,8 @@ def work_area_for_point(point=None):
 
 
 def clamp_geometry_to_work_area(geometry, work_area):
-    if not geometry:
+    geometry = geometry_from_state(geometry)
+    if geometry is None:
         return None
 
     x = geometry.get("x")
@@ -264,9 +393,6 @@ def clamp_geometry_to_work_area(geometry, work_area):
     width = geometry.get("width")
     height = geometry.get("height")
     scale = geometry.get("scale")
-
-    if not all(isinstance(value, int) for value in (x, y, width, height)):
-        return None
 
     left, top, right, bottom = work_area
     max_x = max(left, right - width)
@@ -320,37 +446,84 @@ def rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
 
-def find_percent(value):
-    if value is None:
+def parse_percent(value, *, fraction=False):
+    if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return int(round(value * 100 if 0 <= value <= 1 else value))
+
+    has_percent_suffix = False
     if isinstance(value, str):
-        cleaned = value.strip().replace("%", "")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        has_percent_suffix = cleaned.endswith("%")
+        if has_percent_suffix:
+            cleaned = cleaned[:-1].strip()
         try:
-            return int(round(float(cleaned)))
+            value = float(cleaned)
         except ValueError:
             return None
+    elif isinstance(value, (int, float)):
+        value = float(value)
+    else:
+        return None
+
+    if not math.isfinite(value):
+        return None
+    if fraction and not has_percent_suffix:
+        if not 0 <= value <= 1:
+            return None
+        value *= 100
+    elif not 0 <= value <= 100:
+        return None
+    return int(round(value))
+
+
+def parse_remaining(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1:
+        return parse_percent(value, fraction=True)
+    if isinstance(value, str) and "%" not in value:
+        try:
+            numeric_value = float(value.strip())
+        except ValueError:
+            numeric_value = None
+        if numeric_value is not None and 0 <= numeric_value <= 1:
+            return parse_percent(numeric_value, fraction=True)
+    return parse_percent(value)
+
+
+def find_percent(value):
     if isinstance(value, dict):
-        used = find_percent(value.get("pct"))
+        used = parse_percent(value.get("pct"))
         if used is not None:
-            return max(0, min(100, 100 - used))
+            return 100 - used
         for key in (
             "percent_remaining",
             "remaining_percent",
             "remaining_pct",
             "percent_available",
             "available_percent",
-            "remaining",
-            "available",
         ):
-            percent = find_percent(value.get(key))
+            percent = parse_percent(value.get(key))
             if percent is not None:
                 return percent
-        used = find_percent(value.get("used_percent") or value.get("usage_percent"))
-        if used is not None:
-            return max(0, min(100, 100 - used))
-    return None
+        for key in (
+            "fraction_remaining",
+            "remaining_fraction",
+            "fraction_available",
+            "available_fraction",
+        ):
+            percent = parse_percent(value.get(key), fraction=True)
+            if percent is not None:
+                return percent
+        for key in ("remaining", "available"):
+            percent = parse_remaining(value.get(key))
+            if percent is not None:
+                return percent
+        for key in ("used_percent", "usage_percent"):
+            used = parse_percent(value.get(key))
+            if used is not None:
+                return 100 - used
+    return parse_percent(value)
 
 
 def format_reset(value):
@@ -461,12 +634,119 @@ def normalize_usage(data):
     }
 
 
+def unavailable_local_proxy(value):
+    if not value:
+        return False
+
+    try:
+        parsed = urlsplit(value if "://" in value else f"//{value}")
+        hostname = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return False
+
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+
+    try:
+        with socket.create_connection((hostname, port), timeout=0.25):
+            return False
+    except OSError:
+        return True
+
+
+def find_ssl_cert_file():
+    configured = os.environ.get("SSL_CERT_FILE")
+    if configured:
+        try:
+            if Path(configured).is_file():
+                return Path(configured)
+        except OSError:
+            pass
+
+    candidates = []
+    try:
+        certifi = importlib.util.find_spec("certifi")
+    except (ImportError, ValueError):
+        certifi = None
+    if certifi and certifi.origin:
+        candidates.append(Path(certifi.origin).with_name("cacert.pem"))
+
+    for prefix in (sys.prefix, sys.base_prefix):
+        candidates.append(Path(prefix) / "Lib" / "site-packages" / "certifi" / "cacert.pem")
+
+    for executable_name in ("python.exe", "pythonw.exe"):
+        executable = shutil.which(executable_name)
+        if executable:
+            candidates.append(Path(executable).parent / "Lib" / "site-packages" / "certifi" / "cacert.pem")
+
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def usage_process_environment():
+    environment = os.environ.copy()
+    for name in PROXY_ENV_NAMES:
+        if unavailable_local_proxy(environment.get(name)):
+            environment.pop(name, None)
+
+    cert_file = find_ssl_cert_file()
+    if cert_file:
+        environment["SSL_CERT_FILE"] = str(cert_file)
+    return environment
+
+
+def find_usage_command():
+    command = shutil.which(USAGE_COMMAND_NAME)
+    if command or sys.platform != "win32":
+        return command
+
+    home = Path.home()
+    app_data = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    candidates = []
+    configured_bin = os.environ.get("UV_TOOL_BIN_DIR")
+    if configured_bin:
+        candidates.append(Path(configured_bin) / f"{USAGE_COMMAND_NAME}.exe")
+
+    configured_tool_dir = os.environ.get("UV_TOOL_DIR")
+    if configured_tool_dir:
+        candidates.append(Path(configured_tool_dir) / USAGE_COMMAND_NAME / "Scripts" / f"{USAGE_COMMAND_NAME}.exe")
+
+    # uv's default executable directory is ~/.local/bin. Older uv releases and
+    # custom data-directory settings can leave the tool environment in one of
+    # these Windows data locations instead.
+    candidates.extend(
+        (
+            home / ".local" / "bin" / f"{USAGE_COMMAND_NAME}.exe",
+            app_data / "uv" / "data" / "tools" / USAGE_COMMAND_NAME / "Scripts" / f"{USAGE_COMMAND_NAME}.exe",
+            local_app_data / "uv" / "data" / "tools" / USAGE_COMMAND_NAME / "Scripts" / f"{USAGE_COMMAND_NAME}.exe",
+            app_data / "uv" / "tools" / USAGE_COMMAND_NAME / "Scripts" / f"{USAGE_COMMAND_NAME}.exe",
+            local_app_data / "uv" / "tools" / USAGE_COMMAND_NAME / "Scripts" / f"{USAGE_COMMAND_NAME}.exe",
+        )
+    )
+
+    seen = set()
+    for candidate in candidates:
+        key = os.path.normcase(str(candidate))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    return None
+
+
 def load_usage():
-    command = shutil.which("codex-cli-usage")
-    if not command and sys.platform == "win32":
-        uv_tool_command = Path.home() / ".local" / "bin" / "codex-cli-usage.exe"
-        if uv_tool_command.exists():
-            command = str(uv_tool_command)
+    command = find_usage_command()
 
     if command:
         startupinfo = None
@@ -478,14 +758,15 @@ def load_usage():
             creationflags = CREATE_NO_WINDOW
 
         last_error = None
-        for attempt in range(2):
+        for attempt in range(USAGE_MAX_ATTEMPTS):
             try:
                 result = subprocess.run(
                     [command, "json"],
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=USAGE_TIMEOUT_SECONDS,
                     check=True,
+                    env=usage_process_environment(),
                     startupinfo=startupinfo,
                     creationflags=creationflags,
                 )
@@ -529,6 +810,21 @@ class UsageWidget:
 
         self.title = self.make_label("Codex Usage", 22, 20, font=self.font(14, "bold"))
         self.plan = self.make_label("", 170, 22, font=self.font(9), fg=MUTED)
+        self.version_label = Label(
+            self.root,
+            text=VERSION_LABEL_TEXT,
+            bg=PANEL,
+            fg=MUTED,
+            font=self.font(8),
+            anchor="e",
+        )
+        self.canvas.create_window(
+            self.width - self.s(44),
+            self.s(22),
+            window=self.version_label,
+            anchor="ne",
+        )
+        self.drag_handles.append(self.version_label)
         self.status = self.make_label("Loading...", 22, 140, font=self.font(8), fg=MUTED)
         self.status.configure(wraplength=self.s(130), justify="left")
         self.hint = self.make_label("Right-click\nto hide 20s", 210, 132, font=self.font(8), fg=MUTED)
@@ -771,6 +1067,7 @@ class UsageWidget:
         try:
             usage = load_usage()
         except Exception as exc:
+            write_diagnostic("refresh", exc, (state_path(),))
             self.schedule_ui_callback(lambda: self.apply_refresh_error(exc))
             self.schedule_ui_callback(self.finish_refresh)
             return
@@ -794,17 +1091,25 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    args = parse_args(argv)
-    widget = UsageWidget()
-    if args.reset_position:
-        widget.reset_position()
-    widget.run()
+    instance_lock = acquire_instance_lock()
+    if instance_lock is None:
+        return
+
+    try:
+        args = parse_args(argv)
+        widget = UsageWidget()
+        if args.reset_position:
+            widget.reset_position()
+        widget.run()
+    finally:
+        instance_lock.release()
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
+        write_diagnostic("startup", exc, (Path(__file__), state_path()))
         message = (
             "Codex Usage Widget could not start.\n\n"
             f"{exc.__class__.__name__}: {exc}\n\n"
