@@ -2,6 +2,9 @@
 
 A small Windows widget that keeps Codex usage visible while you work.
 
+This is the `v1.0.0` release. The widget displays the visible version label
+`v 1.0.0` in small, muted text immediately to the left of the `x` close button.
+
 It shows Codex-style remaining usage for:
 
 - `5h`
@@ -72,6 +75,34 @@ The `.vbs` launcher starts the PowerShell launcher hidden, which avoids a startu
 
 Every launch first closes any already-running `codex_usage_widget.py` instances, so repeated starts won’t leave duplicate widgets behind.
 
+## Repository layout
+
+The committed operational layout keeps the quiet VBS entry point at the repository root and places the PowerShell and CMD
+helpers under `scripts/`:
+
+```text
+.gitignore
+LICENSE
+README.md
+codex_usage_widget.py
+pyproject.toml
+start-codex-usage-widget.vbs
+.github/
+docs/
+scripts/
+  build-exe.ps1
+  dependency-versions.ps1
+  install-windows.ps1
+  reset-codex-usage-widget-debug.cmd
+  reset-codex-usage-widget.ps1
+  start-codex-usage-widget-debug.cmd
+  start-codex-usage-widget.ps1
+tests/
+```
+
+Run the root-level `.vbs` launcher for normal use. Use the helpers under `scripts/` for installation, debugging, reset,
+and packaging; there are no root-level PowerShell or CMD launchers.
+
 ## Behavior
 
 The widget is configured to:
@@ -121,9 +152,9 @@ The log rotates at 256 KB and keeps one backup. Entries contain a timestamp, pha
 usage payloads and exception messages are not copied into the log. Runtime logs and their rotated backups are ignored by
 Git.
 
-## Packaging
+## Packaging and standalone distribution
 
-For another Windows PC, the simplest deployment is:
+For source deployment on another Windows PC:
 
 1. Copy or clone this repository.
 2. Run `.\scripts\install-windows.ps1`.
@@ -143,6 +174,10 @@ dist\CodexUsageWidget.exe
 
 Even with the standalone widget executable, the target machine still needs Codex login state and a working `codex-cli-usage` install unless the widget is later changed to call Codex's usage endpoint directly.
 
+For the v1.0.0 standalone distribution workflow, run the installer check and `.\scripts\build-exe.ps1` on the build machine,
+then distribute `dist\CodexUsageWidget.exe` as the executable release artifact. The generated `build/`, `dist/`, and
+PyInstaller spec files remain local build outputs and are ignored by Git.
+
 ## Validation
 
 Focused automated tests cover usage normalization, state migration and validation, diagnostics, focus detection, and
@@ -157,10 +192,10 @@ The Windows CI workflow runs on pushes and pull requests. It uses Python 3.12, `
 sources, installs `uv==0.11.17` for the packaging smoke test, builds with the pinned PyInstaller version, and verifies
 that `dist\CodexUsageWidget.exe` exists and is non-empty. The workflow does not publish a release.
 
-Before distributing a standalone executable, run the installer check (`.\scripts\install-windows.ps1`), confirm
-`codex-cli-usage json` returns usage data on the target machine, run `.\scripts\build-exe.ps1`, and perform a manual
-Windows launch/restart walkthrough. Installed/packaged GUI validation remains a separate release gate; automated tests
-and packaging smoke checks do not replace that walkthrough.
+For v1.0.0 release acceptance, the supported Microsoft Store Codex human visual walkthrough passed with no issues noted.
+The separate non-Store Codex installation and validation is intentionally skipped because it is not required for the
+supported environment and is not a release gate. Before distributing the standalone executable, still run the installer
+check, confirm `codex-cli-usage json` returns usage data on the target machine, and run `.\scripts\build-exe.ps1`.
 
 ## Credits
 

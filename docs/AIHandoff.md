@@ -1,10 +1,14 @@
-# AI Handoff
+# AI Handoff — Codex Usage Widget v1.0.0
 
 This handoff is for the Codex Usage Widget repository.
 
 ## Five-minute briefing
 
-This is a small Windows-only Python/Tkinter widget for showing Codex usage while Codex is focused. It reads JSON from the external `codex-cli-usage` command, converts utilization into remaining percentages, and displays 5-hour/weekly windows and reset times. It persists position, scales for narrow sidebars, hides when another application is focused, and refreshes asynchronously every five minutes.
+This is the v1.0.0 Windows-only Python/Tkinter widget for showing Codex usage while Codex is focused. It reads JSON from
+the external `codex-cli-usage` command, converts utilization into remaining percentages, and displays 5-hour/weekly
+windows and reset times. The header shows the exact visible label `v 1.0.0` immediately left of the close button. It
+persists position, scales for narrow sidebars, hides when another application is focused, and refreshes asynchronously
+every five minutes.
 
 ## Read first
 
@@ -24,10 +28,20 @@ This is a small Windows-only Python/Tkinter widget for showing Codex usage while
 
 ## Current state
 
-Tickets 01–08 provide the reliability fixes, focused automated coverage, pinned non-executing installer/bootstrap guidance,
-Windows CI validation, and synchronized project documentation. Ticket 09 added local packaged smoke evidence for the
-integrated outcome. The worktree remains intentionally dirty; inspect the diff and preserve unrelated user-owned changes
-before making further edits.
+Tickets 01–03 provide the v1.0.0 version contract and label, cleaned launcher layout, and archived review/generated
+artifact cleanup. Ticket 04 synchronizes this documentation with that state. The supported Microsoft Store Codex human
+visual walkthrough passed with no issues noted. The separate non-Store Codex installation and validation is intentionally
+skipped because it is not required for the supported environment and is not a release gate.
+
+The worktree remains intentionally dirty; inspect the diff and preserve unrelated user-owned changes before making further
+edits. Tickets 05–09 cover later integrated validation, release signoff, GitHub review, merge, and publication steps.
+
+## Launcher and distribution workflow
+
+Keep `start-codex-usage-widget.vbs` at the repository root as the normal double-click entry point. Use the operational
+PowerShell and CMD helpers under `scripts/` for installation, debugging, reset, and packaging. The standalone release
+workflow runs `scripts/install-windows.ps1`, then `scripts/build-exe.ps1`, which produces `dist\CodexUsageWidget.exe`.
+The target machine still needs Codex login state and a working `codex-cli-usage` installation.
 
 ## Common mistakes
 
@@ -39,12 +53,12 @@ before making further edits.
   workflow that performs a non-publishing packaging smoke test.
 - Do not include credentials, tokens, private data, sensitive internal data, or machine-specific paths in continuity updates.
 
-## Unresolved or unverified
+## Acceptance and remaining work
 
-- Packaged native window-state checks passed for duplicate launch, position persistence, close during refresh, Store
-  focus visibility, diagnostics, and missing-`uv` guidance. A human visual walkthrough remains an unverified release
-  gate. The separate live non-Store Codex variant was intentionally skipped because it is not required for the
-  supported Microsoft Store environment.
-- CI and local packaging checks establish that the executable can be built and is non-empty; they do not establish full GUI
-  acceptance on a target machine.
-- Release ownership, distribution channel, and whether a standalone executable is the preferred artifact are not specified.
+- Supported Microsoft Store Codex human visual walkthrough: passed with no issues noted.
+- Separate non-Store Codex validation: intentionally skipped and not required for the supported environment; it is not a
+  release gate.
+- Integrated regression and packaging validation, followed by the later GitHub PR, merge, tag, and publication workflow,
+  remain separate tickets and were not performed by this documentation synchronization.
+- The widget continues to depend on authenticated Codex state and the external `codex-cli-usage` tool; the standalone
+  executable does not remove that prerequisite.

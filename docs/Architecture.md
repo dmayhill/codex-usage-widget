@@ -1,6 +1,9 @@
 # Architecture
 
-This document describes the Codex Usage Widget repository.
+This document describes the v1.0.0 Codex Usage Widget repository.
+
+The runtime version contract is `APP_VERSION = "1.0.0"`. The header displays the exact label `v 1.0.0` in small, muted
+text immediately to the left of the existing `x` close button.
 
 ## High-level design
 
@@ -27,6 +30,31 @@ PowerShell, CMD, and VBScript files provide installation, launch, debug, reset, 
 - `.github/workflows/windows-validation.yml`: Windows push/PR tests, compile check, and non-publishing packaging smoke test.
 - `pyproject.toml`: package metadata and Python/Ruff configuration.
 
+## Repository layout
+
+The root-level `.vbs` file is the primary quiet launcher. Operational PowerShell and CMD helpers are kept under
+`scripts/`; there are no root-level PowerShell or CMD launchers.
+
+```text
+.gitignore
+LICENSE
+README.md
+codex_usage_widget.py
+pyproject.toml
+start-codex-usage-widget.vbs
+.github/
+docs/
+scripts/
+  build-exe.ps1
+  dependency-versions.ps1
+  install-windows.ps1
+  reset-codex-usage-widget-debug.cmd
+  reset-codex-usage-widget.ps1
+  start-codex-usage-widget-debug.cmd
+  start-codex-usage-widget.ps1
+tests/
+```
+
 ## Data flow
 
 `UsageWidget.schedule_refresh()` starts an asynchronous refresh. `find_usage_command()` first checks `PATH`, then the configured/default Windows `uv` tool locations. `load_usage()` invokes `codex-cli-usage json`, retries once after a subprocess, timeout, or JSON error, and passes decoded data to `normalize_usage()`. If the command is unavailable, it attempts the generic cache at `%USERPROFILE%\.codex\usage-limits.json`. The normalized values are applied on the Tkinter thread by `apply_usage()`; failures preserve last-known data when available.
@@ -49,7 +77,16 @@ copy exception messages or usage payloads.
 - The current launcher clears `TCL_LIBRARY` and `TK_LIBRARY` before selecting Python to avoid incompatible paths inherited from PyInstaller parents.
 - Focus matching is intentionally keyword-based (`codex`) and can produce false positives or misses; preserve the Store-window-title fallback unless replacing it with a verified stronger mechanism.
 - Installer and packaging scripts stop with official `uv` installation guidance when `uv` is unavailable; they do not execute a remote bootstrap script. Exact external-tool pins are loaded from `scripts/dependency-versions.ps1`.
-- CI validates tests, compilation, and that packaging produces a non-empty executable; it does not publish artifacts or replace installed/packaged GUI validation.
+- CI validates tests, compilation, and that packaging produces a non-empty executable; it does not publish artifacts or replace the recorded human visual acceptance evidence.
+
+## v1.0.0 release acceptance and distribution
+
+- The supported Microsoft Store Codex human visual walkthrough passed with no issues noted.
+- The separate non-Store Codex installation and validation is intentionally skipped. It is not required for the supported
+  environment and is not a release gate.
+- The standalone executable workflow runs `scripts/install-windows.ps1` for the pinned usage dependency, then
+  `scripts/build-exe.ps1` to produce `dist\CodexUsageWidget.exe`. That executable is the distribution artifact; the target
+  machine still requires Codex login state and `codex-cli-usage`.
 
 ## Recommended reading order
 

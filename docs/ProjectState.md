@@ -1,6 +1,6 @@
 # Project State
 
-_Snapshot: 2026-09-08. Based on the current worktree, repository history through `b6d2e2d`, and the checked-in documentation/configuration._
+_Snapshot: 2026-09-09. Based on the current working tree, repository history through `925a97f`, and the repository configuration._
 
 ## Purpose
 
@@ -8,7 +8,10 @@ The Codex Usage Widget is a small Windows always-on-top widget that displays Cod
 
 ## Status and maturity
 
-Early but usable utility, version `0.1.0`. The main feature path, Windows launchers, reliability fixes from tickets 01–07, automated validation, and Windows CI configuration are implemented. The current worktree is intentionally dirty with those changes plus the documentation/repository-hygiene work; preserve unrelated existing changes when continuing.
+Usable v1.0.0 utility. The main feature path, visible version label, cleaned Windows launcher layout, reliability fixes,
+automated validation configuration, and Windows CI configuration are implemented locally through ticket 04. The current
+worktree is intentionally dirty with those changes plus later release-ticket files; preserve unrelated existing changes
+when continuing.
 
 ## Completed
 
@@ -18,44 +21,53 @@ Early but usable utility, version `0.1.0`. The main feature path, Windows launch
 - Visibility tied to Codex focus, including a window-title fallback for Store-style Codex windows in the current worktree.
 - Dragged-position persistence, monitor work-area clamping, last-known-good geometry, scaling for narrow sidebars, and reset/recenter support.
 - Quiet `.vbs` launcher, visible debug launchers, Python-runtime candidate fallback, duplicate-process cleanup, and standalone PyInstaller build script.
+- v1.0.0 runtime metadata and the subdued `v 1.0.0` label immediately left of the close button.
+- Cleaned repository layout with the root `.vbs` entry point and operational PowerShell/CMD helpers under `scripts/`.
 - Focused tests for usage parsing, state persistence/migration, bounded diagnostics, focus detection, refresh behavior, and launcher/packaging assumptions.
 - Windows push/PR validation workflow covering tests, Python compilation, and a non-publishing standalone-package smoke check.
+- Documentation synchronized with the v1.0.0 launcher, packaging, and release-acceptance state.
 
 ## Work in progress
 
-- Ticket 09 installed/packaged smoke validation is complete at the native window-state level. A separate live
-  non-Store Codex variant was explicitly skipped because the supported environment uses the Microsoft Store build.
-- Release ownership and the preferred distribution artifact remain undefined.
+- The supported Microsoft Store Codex human visual walkthrough passed with no issues noted. The separate non-Store Codex
+  installation and validation is intentionally skipped because it is not required for the supported environment and is not
+  a release gate.
+- Ticket 05 integrated regression and packaging validation, followed by tickets 06–09 release signoff, GitHub review/merge,
+  and publication, remain to be completed.
 
 ## Remaining work and known limitations
 
 - The widget depends on Codex login state and the external `codex-cli-usage` tool; it does not call a documented Codex usage endpoint directly.
 - Usage JSON normalization is heuristic because it accepts several possible field names/shapes.
 - Tkinter, Windows APIs, monitor behavior, and launcher/runtime selection are platform-specific.
-- A packaged executable was built and exercised locally: duplicate launch, `%LOCALAPPDATA%` position persistence,
-  close during a slow refresh, Store Codex focus visibility, unrelated-window hiding, failure diagnostics, and missing-`uv`
-  guidance passed. This native window-state evidence is not a substitute for a human visual walkthrough.
-- There is no formal release artifact, versioning workflow, or publishing workflow. Packaging is a local/CI smoke check only.
+- The standalone executable workflow is documented: run `scripts/install-windows.ps1`, then `scripts/build-exe.ps1`, and
+  distribute the resulting `dist\CodexUsageWidget.exe`. The target machine still needs Codex login state and
+  `codex-cli-usage`.
+- The later integrated validation, GitHub PR, merge, tag, and publication steps have not been performed by this
+  documentation-only ticket.
 
 ## Validation and release
 
-The repository contains configuration for Python `>=3.10`, Ruff line length, and PyInstaller packaging through the pinned `uvx`/`uv tool run` path. `python -m pytest -q` runs the focused automated suite, and `python -m compileall -q codex_usage_widget.py tests` checks Python compilation. The Windows workflow in `.github/workflows/windows-validation.yml` runs those checks on pushes and pull requests, then builds and verifies a non-empty `dist/CodexUsageWidget.exe` using Python 3.12, `pytest==8.4.1`, `uv==0.11.17`, and the shared PyInstaller pin. The target machine still needs Codex authentication and a working usage-data source.
+The repository contains configuration for Python `>=3.10`, Ruff line length, and PyInstaller packaging through the pinned
+`uvx`/`uv tool run` path. `python -m pytest -q` runs the focused automated suite, and
+`python -m compileall -q codex_usage_widget.py tests` checks Python compilation. The Windows workflow in
+`.github/workflows/windows-validation.yml` runs those checks on pushes and pull requests, then builds and verifies a
+non-empty `dist/CodexUsageWidget.exe` using Python 3.12, `pytest==8.4.1`, `uv==0.11.17`, and the shared PyInstaller pin.
+The workflow does not publish the executable. The target machine still needs Codex authentication and a working
+usage-data source.
 
 ## Operational Validation
 
-- Automated tests: verified locally on 2026-09-08; 36 focused tests passed.
-- Python compilation: verified locally on 2026-09-08 with `python -m compileall -q codex_usage_widget.py tests`.
-- Packaged executable: built locally with pinned PyInstaller `6.21.0`; non-empty output measured at 12,732,616 bytes.
-- Packaged native smoke: duplicate launch, position restore, close during refresh, Store Codex visibility, unrelated
-  focus hiding, bounded diagnostics, and missing-`uv` guidance passed.
-- Normal title-based Codex focus: verified by focused tests; the separate live non-Store Codex GUI variant was intentionally
-  skipped and is not required for the current supported environment.
-- Representative live Codex usage payload and external authentication: unverified; the failure smoke used isolated local
-  paths and a ticket-local slow command.
-- Human visual walkthrough and release/distribution acceptance: deferred; native window-state checks do not replace it.
+- Supported Microsoft Store Codex human visual walkthrough: passed with no issues noted.
+- Separate non-Store Codex installation and validation: intentionally skipped; it is not required for the supported
+  environment and is not a release gate.
+- Documentation/reference checks for ticket 04: performed locally; no application behavior or archived review evidence was
+  changed.
+- Integrated regression, packaging-build, and publication checks: not run by this documentation-only ticket; ticket 05 and
+  later tickets own those checks.
 
 ## Priorities
 
-1. Perform the deferred human visual walkthrough on the supported Microsoft Store Codex environment.
-2. Establish release ownership and the preferred distribution artifact.
+1. Run integrated regression and packaging validation for the v1.0.0 work.
+2. Complete the remaining supported-environment release signoff and GitHub release workflow.
 3. Keep the README, continuity docs, and CI workflow synchronized when runtime or packaging behavior changes.
