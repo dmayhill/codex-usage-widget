@@ -206,7 +206,9 @@ def codex_has_focus():
     process_name = Path(process_path).name
     if process_name == "codex.exe":
         return True
-    return process_name == "chatgpt.exe" and CODEX_PACKAGE_MARKER in process_path
+    if process_name == "chatgpt.exe" and CODEX_PACKAGE_MARKER in process_path:
+        return True
+    return False
 
 
 def state_path():
