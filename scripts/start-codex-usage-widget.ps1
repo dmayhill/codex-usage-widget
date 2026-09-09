@@ -3,30 +3,10 @@ param([switch]$ResetPosition)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Widget = Join-Path $ScriptDir "codex_usage_widget.py"
+$Root = Split-Path -Parent $PSScriptRoot
+$Widget = Join-Path $Root "codex_usage_widget.py"
 $Tried = New-Object System.Collections.Generic.List[string]
 $DebugLauncher = $env:CODEX_USAGE_WIDGET_DEBUG -eq "1"
-
-function Stop-ExistingWidgetProcesses {
-    param([string]$WidgetPath)
-
-    $pattern = [Regex]::Escape($WidgetPath)
-    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.CommandLine -and $_.CommandLine -match $pattern
-    }
-
-    foreach ($Process in $processes) {
-        try {
-            Stop-Process -Id $Process.ProcessId -Force -ErrorAction Stop
-        } catch {
-            continue
-        }
-    }
-
-    if ($processes) {
-        Start-Sleep -Milliseconds 500
-    }
-}
 
 function Wait-On-Error {
     param([string]$Message)
@@ -50,15 +30,14 @@ function Wait-On-Error {
 # They are incompatible with the standalone Python runtime used by the widget.
 Remove-Item Env:TCL_LIBRARY -ErrorAction SilentlyContinue
 Remove-Item Env:TK_LIBRARY -ErrorAction SilentlyContinue
-Stop-ExistingWidgetProcesses -WidgetPath $Widget
 
 if ($DebugLauncher) {
     $PythonCandidates = @(
-        (Join-Path $ScriptDir ".venv\Scripts\python.exe"),
+        (Join-Path $Root ".venv\Scripts\python.exe"),
         "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe",
         "python",
         "py",
-        (Join-Path $ScriptDir ".venv\Scripts\pythonw.exe"),
+        (Join-Path $Root ".venv\Scripts\pythonw.exe"),
         "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe",
         "pythonw"
     )
@@ -66,7 +45,7 @@ if ($DebugLauncher) {
     # Quiet mode must never fall back to a console-subsystem Python executable.
     # The debug launcher intentionally includes those candidates above.
     $PythonCandidates = @(
-        (Join-Path $ScriptDir ".venv\Scripts\pythonw.exe"),
+        (Join-Path $Root ".venv\Scripts\pythonw.exe"),
         "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe",
         "pythonw"
     )
